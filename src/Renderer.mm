@@ -68,7 +68,11 @@ fragment float4 screen_fragment(ScreenVaryings in [[stage_in]], texture2d<float>
                                 sampler smp [[sampler(0)]], constant ScreenUniforms& u [[buffer(0)]]) {
     float2 uv = in.uv;
     if (u.params.x > 0.5) uv.y = 1.0 - uv.y;
-    return tex.sample(smp, uv);
+    // params.y is the screen-blend opacity (1 for the normal pipeline). The screen blend is
+    // dst + src*(1 - dst), so scaling src fades the effect smoothly down to nothing.
+    float4 color = tex.sample(smp, uv);
+    color.rgb *= u.params.y;
+    return color;
 }
 
 struct LineVaryings { float4 position [[position]]; float4 color; };
@@ -192,13 +196,40 @@ std::vector<LineSegment> cameraGlyphLines() {
     return lines;
 }
 
+// The no-scene state: a 16:9 screen lying on the floor, centered on the origin, textured
+// with the current source (default_tex.png, a 1920x1080 chart, when the source has no frame).
+// Sizes are in centimeters, the scene's unit. 160 x 90 is 16:9 exactly and a multiple of the
+// 10 cm placeholder grid below.
+constexpr float kPlaceholderWidthCm = 160.0f;
+constexpr float kPlaceholderHeightCm = 90.0f;
+constexpr float kPlaceholderGridCm = 10.0f;
+
+// A grid of `step`-sized cells over a rectangle of half-extents (halfW, halfD), centered on
+// the origin on the XZ plane, including its outline.
+std::vector<LineSegment> rectGridLines(float halfW, float halfD, float step, simd_float4 color) {
+    std::vector<LineSegment> lines;
+    const int cellsX = (int)lroundf(2 * halfW / step), cellsZ = (int)lroundf(2 * halfD / step);
+    for (int i = 0; i <= cellsX; ++i) {
+        float x = -halfW + 2 * halfW * i / cellsX;
+        lines.push_back(segment(simd_make_float3(x, 0, -halfD), simd_make_float3(x, 0, halfD), color));
+    }
+    for (int i = 0; i <= cellsZ; ++i) {
+        float z = -halfD + 2 * halfD * i / cellsZ;
+        lines.push_back(segment(simd_make_float3(-halfW, 0, z), simd_make_float3(halfW, 0, z), color));
+    }
+    return lines;
+}
+
 MeshGroup placeholderScreen() {
     MeshGroup g;
+    const float w = kPlaceholderWidthCm / 2, d = kPlaceholderHeightCm / 2;
+    // UV (0,0) is the image's bottom-left corner, at the near-left of the floor rectangle,
+    // as with the 1 m square this replaced.
     g.vertices = {
-        {{-50, 0, 50}, {0, 1, 0}, {0, 0}},
-        {{50, 0, 50}, {0, 1, 0}, {1, 0}},
-        {{50, 0, -50}, {0, 1, 0}, {1, 1}},
-        {{-50, 0, -50}, {0, 1, 0}, {0, 1}},
+        {{-w, 0, d}, {0, 1, 0}, {0, 0}},
+        {{w, 0, d}, {0, 1, 0}, {1, 0}},
+        {{w, 0, -d}, {0, 1, 0}, {1, 1}},
+        {{-w, 0, -d}, {0, 1, 0}, {0, 1}},
     };
     g.indices = {0, 1, 2, 0, 2, 3};
     g.parts.push_back(MeshPart{0, 6, Material()});
@@ -337,7 +368,8 @@ void Renderer::setScene(const SceneData* scene) {
         screens_ = upload(placeholderScreen());
         stages_ = GpuGroup();
         guides_ = GpuGroup();
-        wireframe_ = upload(gridLines(10.0f, 5, simd_make_float4(1, 1, 1, 1)));
+        wireframe_ = upload(rectGridLines(kPlaceholderWidthCm / 2, kPlaceholderHeightCm / 2, kPlaceholderGridCm,
+                                          simd_make_float4(1, 1, 1, 1)));
     }
 }
 
@@ -367,9 +399,10 @@ void Renderer::drawLit(id<MTLRenderCommandEncoder> enc, const GpuGroup& group) {
 void Renderer::drawStages(id<MTLRenderCommandEncoder> enc) { drawLit(enc, stages_); }
 void Renderer::drawGuides(id<MTLRenderCommandEncoder> enc) { drawLit(enc, guides_); }
 
-void Renderer::drawScreens(id<MTLRenderCommandEncoder> enc, id<MTLTexture> texture, bool flipV, bool screenBlend) {
+void Renderer::drawScreens(id<MTLRenderCommandEncoder> enc, id<MTLTexture> texture, bool flipV, bool screenBlend,
+                           float blendOpacity) {
     if (!screens_.indexCount || !texture) return;
-    ScreenUniforms su = {simd_make_float4(flipV ? 1.0f : 0.0f, 0, 0, 0)};
+    ScreenUniforms su = {simd_make_float4(flipV ? 1.0f : 0.0f, screenBlend ? blendOpacity : 1.0f, 0, 0)};
     [enc setRenderPipelineState:screenBlend ? screenBlendPipeline_ : screenPipeline_];
     [enc setDepthStencilState:screenBlend ? depthRead_ : depthWrite_];
     [enc setVertexBuffer:screens_.vertices offset:0 atIndex:0];

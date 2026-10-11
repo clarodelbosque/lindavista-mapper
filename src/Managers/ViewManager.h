@@ -38,6 +38,10 @@ public:
     // happens to contain byte-identical camera data). If the active preset is one of them,
     // falls back to "(Custom)", same as the Delete Camera button. Presets added via "Add
     // Camera" have no file origin and are never matched by this.
+    // Called by SceneManager whenever the loaded scene changes. The default camera is closer
+    // while only the placeholder screen is shown, and wider for stage scenes; a camera still
+    // sitting at the previous default follows the change, any other camera is left alone.
+    void setSceneEmpty(bool empty);
     void removeCameraList(uint64_t originId);
 
     void setViewport(simd_float2 sizePoints, float pixelsPerPoint);
@@ -76,6 +80,7 @@ private:
     void applyCurrentCameraInfo();
     void resetCamera();
     void requestAddCamera();
+    bool sceneEmpty_ = true;  // no FBX loaded: the placeholder screen is shown (see setSceneEmpty)
     void deleteCurrentCamera();
     simd_float3 pickPivot(simd_float2 point);
     std::string cameraNames() const;
@@ -86,6 +91,7 @@ private:
     int cameraIndex_ = 0;  // 0 = custom, otherwise 1-based preset index
     std::vector<Visibility> visibility_;
     bool enableScreenBlending_ = false;
+    float screenBlendOpacity_ = 1.0f;  // 0.1-1.0; only used while screen blending is on
 
     simd_float2 viewSize_ = {1024, 768};
     float pixelsPerPoint_ = 1.0f;
@@ -94,7 +100,7 @@ private:
     simd_float2 lastPoint_ = {0, 0};
     float lastPivotDistance_ = 450.0f;
 
-    NavMode navMode_ = NavMode::Orbit;
+    NavMode navMode_ = NavMode::Walk;  // default for fresh settings; a saved choice wins
     struct MoveKeys {
         bool w = false, a = false, s = false, d = false, q = false, e = false;
     } moveKeys_;

@@ -83,7 +83,12 @@ function ExpandedPanel({ state, dispatch }: { state: PanelState; dispatch: Dispa
         <Separator />
         <CameraSection camera={state.camera} navMode={state.navMode} dispatch={dispatch} />
         <Separator />
-        <DisplaySection visibility={state.visibility} screenBlending={state.screenBlending} dispatch={dispatch} />
+        <DisplaySection
+          visibility={state.visibility}
+          screenBlending={state.screenBlending}
+          screenBlendOpacity={state.screenBlendOpacity}
+          dispatch={dispatch}
+        />
         <Separator />
         <WindowSection misc={state.misc} dispatch={dispatch} />
       </ScrollArea>
@@ -494,6 +499,78 @@ function NumberField({ value, onChange }: { value: number; onChange: (value: num
   )
 }
 
+// A single typed number with a unit suffix ("40.0°", "51%"), for values that also have a
+// slider. Shows the suffix when idle and the bare number while editing; the value is
+// committed (clamped to min..max) on Enter or blur, and Escape abandons the edit. Unlike
+// NumberField it doesn't scrub: the slider beside it already covers dragging.
+// Limits of the FOV and screen-blending opacity controls. Keep in step with kMinFovDegrees /
+// kMaxFovDegrees / kMinBlendOpacity in src/Managers/ViewManager.mm, which clamp again.
+const FOV_MIN = 1
+const FOV_MAX = 140
+const OPACITY_MIN_PERCENT = 10
+const OPACITY_MAX_PERCENT = 100
+
+function UnitInput({
+  value,
+  min,
+  max,
+  decimals,
+  unit,
+  onCommit,
+  label,
+  testId,
+}: {
+  value: number
+  min: number
+  max: number
+  decimals: number
+  unit: string
+  onCommit: (value: number) => void
+  label: string
+  testId?: string
+}) {
+  const [editing, setEditing] = useState(false)
+  const [text, setText] = useState("")
+  const abandoned = useRef(false)
+  const display = `${value.toFixed(decimals)}${unit}`
+
+  const finish = () => {
+    setEditing(false)
+    if (abandoned.current) {
+      abandoned.current = false
+      return
+    }
+    const n = parseFloat(text)
+    if (!Number.isFinite(n)) return // not a number: the field just shows the current value again
+    onCommit(Number(Math.min(max, Math.max(min, n)).toFixed(decimals)))
+  }
+
+  return (
+    <Input
+      type="text"
+      inputMode="decimal"
+      aria-label={label}
+      value={editing ? text : display}
+      onFocus={(e) => {
+        setText(value.toFixed(decimals))
+        setEditing(true)
+        e.currentTarget.select()
+      }}
+      onBlur={finish}
+      onChange={(e) => setText(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur()
+        else if (e.key === "Escape") {
+          abandoned.current = true
+          e.currentTarget.blur()
+        }
+      }}
+      className="h-7 w-16 shrink-0 px-1.5 text-center text-xs tabular-nums"
+      data-testid={testId}
+    />
+  )
+}
+
 function Vector3Field({ label, value, onChange }: { label: string; value: Vector3; onChange: (value: Vector3) => void }) {
   return (
     <div className="mt-3 flex items-center gap-3">
@@ -580,17 +657,26 @@ function CameraSection({ camera, navMode, dispatch }: { camera: PanelState["came
       <Vector3Field label="Rotation" value={camera.rotation} onChange={(value) => dispatch({ type: "setCameraRotation", value })} />
 
       <div className="mt-3 flex items-center gap-3">
-        <span className="w-20 shrink-0 text-sm text-muted-foreground">Field of view</span>
+        <span className="w-20 shrink-0 text-sm text-muted-foreground">FOV</span>
         <Slider
           className="flex-1"
-          min={1}
-          max={179}
+          min={FOV_MIN}
+          max={FOV_MAX}
           step={0.5}
-          value={[camera.fov]}
+          value={[Math.min(FOV_MAX, camera.fov)]}
           onValueChange={([value]) => dispatch({ type: "setCameraFov", value })}
           data-testid="camera-fov"
         />
-        <span className="w-10 shrink-0 text-right text-sm tabular-nums">{camera.fov.toFixed(1)}°</span>
+        <UnitInput
+          value={camera.fov}
+          min={FOV_MIN}
+          max={FOV_MAX}
+          decimals={1}
+          unit="°"
+          label="Field of view in degrees"
+          onCommit={(value) => dispatch({ type: "setCameraFov", value })}
+          testId="camera-fov-input"
+        />
       </div>
 
       <label className="mt-2.5 flex h-7 items-center gap-2.5 rounded-md px-2 -mx-2 hover:bg-muted/50">
@@ -662,10 +748,12 @@ const LAYER_KEYS: Partial<Record<VisibilityKey, string>> = { guides: "G", wirefr
 function DisplaySection({
   visibility,
   screenBlending,
+  screenBlendOpacity,
   dispatch,
 }: {
   visibility: PanelState["visibility"]
   screenBlending: boolean
+  screenBlendOpacity: number
   dispatch: Dispatch
 }) {
   return (
@@ -695,6 +783,30 @@ function DisplaySection({
           data-testid="screen-blending"
         />
       </label>
+      {screenBlending && (
+        <div className="mt-2 flex items-center gap-3">
+          <span className="w-20 shrink-0 text-sm text-muted-foreground">Opacity</span>
+          <Slider
+            className="flex-1"
+            min={OPACITY_MIN_PERCENT}
+            max={OPACITY_MAX_PERCENT}
+            step={1}
+            value={[Math.round(screenBlendOpacity * 100)]}
+            onValueChange={([percent]) => dispatch({ type: "setScreenBlendOpacity", value: percent / 100 })}
+            data-testid="screen-blend-opacity"
+          />
+          <UnitInput
+            value={Math.round(screenBlendOpacity * 100)}
+            min={OPACITY_MIN_PERCENT}
+            max={OPACITY_MAX_PERCENT}
+            decimals={0}
+            unit="%"
+            label="Screen blending opacity in percent"
+            onCommit={(percent) => dispatch({ type: "setScreenBlendOpacity", value: percent / 100 })}
+            testId="screen-blend-opacity-input"
+          />
+        </div>
+      )}
     </Section>
   )
 }

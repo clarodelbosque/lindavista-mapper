@@ -11,6 +11,11 @@
 namespace {
 // Walking speed, in centimeters per second (the scene's unit -- see HANDOFF.md 5.5/12).
 constexpr float kWalkSpeedCmPerSec = 600.0f;
+// Limits for the FOV control and the screen-blending opacity control (the UI limits, not
+// the renderer's: a preset imported from an FBX may carry a wider FOV and keeps it).
+constexpr float kMinFovDegrees = 1.0f;
+constexpr float kMaxFovDegrees = 140.0f;
+constexpr float kMinBlendOpacity = 0.1f;
 
 double nowSeconds() {
     using namespace std::chrono;
@@ -36,7 +41,23 @@ bool& ViewManager::visible(const char* key) {
     return missing;
 }
 
-void ViewManager::resetCamera() { cam_.reset(); }
+void ViewManager::resetCamera() { cam_.reset(sceneEmpty_); }
+
+void ViewManager::setSceneEmpty(bool empty) {
+    if (empty == sceneEmpty_) return;
+    // Follow the scene only while the camera is still untouched at the previous default
+    // (a saved, preset, or user-moved camera stays where it is), and keep the user's
+    // Fix Up Direction choice, which a reset would otherwise turn back on.
+    GrabCamera previous;
+    previous.reset(sceneEmpty_);
+    bool untouched = cameraIndex_ == 0 && cam_.matches(previous.transform(), previous.fov);
+    sceneEmpty_ = empty;
+    if (untouched) {
+        bool fixUp = cam_.fixUpDirection;
+        resetCamera();
+        cam_.fixUpDirection = fixUp;
+    }
+}
 
 void ViewManager::applyCurrentCameraInfo() {
     if (cameraIndex_ == 0) {
@@ -133,7 +154,7 @@ void ViewManager::drawImGui() {
             float rot[3] = {euler.x, euler.y, euler.z};
             if (ImGui::DragFloat3("Rot", rot, 1.0f, 0.0f, 0.0f, "%.1f")) cam_.setEulerDegrees(simd_make_float3(rot[0], rot[1], rot[2]));
 
-            ImGui::SliderFloat("Fov", &cam_.fov, 0.0f, 180.0f);
+            ImGui::SliderFloat("Fov", &cam_.fov, kMinFovDegrees, kMaxFovDegrees);
             ImGui::Checkbox("Fix Up Direction", &cam_.fixUpDirection);
             ImGui::TreePop();
         }
@@ -193,6 +214,7 @@ void ViewManager::writePanelState(NSMutableDictionary* state) {
     state[@"navMode"] = navMode_ == NavMode::Walk ? @"walk" : @"orbit";
     state[@"visibility"] = visibility;
     state[@"screenBlending"] = @(enableScreenBlending_);
+    state[@"screenBlendOpacity"] = @(std::round(screenBlendOpacity_ * 100.0f) / 100.0f);
 }
 
 bool ViewManager::handlePanelAction(NSString* type, NSDictionary* action) {
@@ -224,7 +246,7 @@ bool ViewManager::handlePanelAction(NSString* type, NSDictionary* action) {
         return true;
     }
     if ([type isEqualToString:@"setCameraFov"]) {
-        cam_.fov = std::clamp([action[@"value"] floatValue], 0.0f, 180.0f);
+        cam_.fov = std::clamp([action[@"value"] floatValue], kMinFovDegrees, kMaxFovDegrees);
         return true;
     }
     if ([type isEqualToString:@"setFixUpDirection"]) {
@@ -233,6 +255,11 @@ bool ViewManager::handlePanelAction(NSString* type, NSDictionary* action) {
     }
     if ([type isEqualToString:@"setScreenBlending"]) {
         enableScreenBlending_ = [action[@"value"] boolValue];
+        return true;
+    }
+    if ([type isEqualToString:@"setScreenBlendOpacity"]) {
+        float value = [action[@"value"] floatValue];
+        if (std::isfinite(value)) screenBlendOpacity_ = std::clamp(value, kMinBlendOpacity, 1.0f);
         return true;
     }
     if ([type isEqualToString:@"addCamera"]) {
@@ -289,7 +316,7 @@ void ViewManager::draw(id<MTLRenderCommandEncoder> enc, SourceManager& sources) 
     if (visible("screens")) {
         bool flipV = false;
         id<MTLTexture> texture = sources.currentTexture(&flipV);
-        r.drawScreens(enc, texture, flipV, enableScreenBlending_);
+        r.drawScreens(enc, texture, flipV, enableScreenBlending_, screenBlendOpacity_);
     }
     if (visible("wireframe")) r.drawWireframe(enc);
     if (visible("grid")) r.drawGrid(enc);
@@ -429,7 +456,10 @@ void ViewManager::loadSettings(Settings& settings) {
     cameraIndex_ = std::clamp(camera.getInt("index", 0), 0, (int)cameraList_.size());
 
     enableScreenBlending_ = s.getBool("enableScreenBlending", false);
-    navMode_ = s.getString("navMode", "orbit") == "walk" ? NavMode::Walk : NavMode::Orbit;
+    float opacity = s.getFloat("screenBlendOpacity", 1.0f);
+    screenBlendOpacity_ = std::isfinite(opacity) ? std::clamp(opacity, kMinBlendOpacity, 1.0f) : 1.0f;
+    // Walk is the default for fresh settings; a saved "orbit" or "walk" is kept as is.
+    navMode_ = s.getString("navMode", "walk") == "orbit" ? NavMode::Orbit : NavMode::Walk;
 }
 
 void ViewManager::saveSettings(Settings& settings) {
@@ -454,5 +484,6 @@ void ViewManager::saveSettings(Settings& settings) {
     }
 
     s.setBool("enableScreenBlending", enableScreenBlending_);
+    s.setFloat("screenBlendOpacity", screenBlendOpacity_);
     s.setString("navMode", navMode_ == NavMode::Walk ? "walk" : "orbit");
 }

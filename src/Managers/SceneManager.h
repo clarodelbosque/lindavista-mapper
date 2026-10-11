@@ -28,6 +28,9 @@ public:
     // Called when an entry is removed, so the preset list (owned by ViewManager) can drop
     // any presets that came from it.
     std::function<void(uint64_t entryId)> onCameraListRemove;
+    // Called whenever the combined scene is rebuilt; `empty` is true when nothing is loaded
+    // (the renderer then shows the placeholder screen).
+    std::function<void(bool empty)> onSceneEmptyChanged;
 
     void drawImGui() override;
     void loadSettings(Settings& settings) override;

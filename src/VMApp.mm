@@ -72,6 +72,7 @@ bool VMApp::setup(NSWindow* window, MTKView* view, const AppOptions& options, st
     sceneManager_.onCameraListRemove = [this](uint64_t entryId) {
         viewManager_.removeCameraList(entryId);
     };
+    sceneManager_.onSceneEmptyChanged = [this](bool empty) { viewManager_.setSceneEmpty(empty); };
     miscManager_.isWalkModeActive = [this] { return viewManager_.navMode() == ViewManager::NavMode::Walk; };
     miscManager_.setWalkModeActive = [this](bool walk) {
         viewManager_.setNavMode(walk ? ViewManager::NavMode::Walk : ViewManager::NavMode::Orbit);

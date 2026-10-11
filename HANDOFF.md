@@ -1,12 +1,12 @@
 # Linda Vista Mapper: Handoff
 
-Linda Vista Mapper is a native Apple Silicon (arm64) rebuild of [Virtual Mapper](https://github.com/baku89/VirtualMapper) by Baku Hashimoto (MIT licensed; see `LICENSE`). This document is the handoff for whoever works on it next. It covers everything the app does, where each piece lives, and how to verify changes without a human clicking around.
+Linda Vista Mapper is a native Apple Silicon (arm64) app redesigned by Ale Segura, a rebuild of [Virtual Mapper](https://github.com/baku89/VirtualMapper) by Baku Hashimoto (MIT licensed; see `LICENSE`). This document is the handoff for whoever works on it next. It covers everything the app does, where each piece lives, and how to verify changes without a human clicking around.
 
-- **Status:** working. Version 3.1.0. As of the last full run (Oct 1), `make`, `make test` and `make smoke` (24 checks) passed. Re-run them on a fresh checkout before relying on that; `make smoke` runs the **classic ImGui UI** only (see [8.4](#84-keep-the-tests-in-step-with-the-layout)).
+- **Status:** working. Version 3.1.0. As of the last full run (Oct 1), `make`, `make test` and `make smoke` (24 checks at the time; 36 now) passed. Re-run them on a fresh checkout before relying on that; `make smoke` runs the **classic ImGui UI** only (see [8.4](#84-keep-the-tests-in-step-with-the-layout)).
 - **Default UI:** a **web panel** (React + shadcn/ui in `ui/`, shown in a `WKWebView` docked to the left of the window; see [5.8](#58-web-panel-default-ui)). The original **classic ImGui sidebar** is still built in and selected with `--classic-ui` (`make run-classic`). [Section 6](#6-ui-inventory-current-design) inventories the classic sidebar (the 2.x behavior being matched); [6.5](#65-web-panel-controls) lists the web panel's controls.
-- **Scope so far:** a behavior-faithful clone of Virtual Mapper 2.3.1 (same panels, controls and shortcuts), plus the fixes and additions listed in [Differences from 2.3.1](#9-differences-from-virtual-mapper-231) — notably composite (multi-file) FBX loading, an opt-in Walk navigation mode alongside the original Orbit controls, and the web panel.
+- **Scope so far:** a behavior-faithful clone of Virtual Mapper 2.3.1 (same panels, controls and shortcuts), plus the fixes and additions listed in [Differences from 2.3.1](#9-differences-from-virtual-mapper-231) — notably composite (multi-file) FBX loading, a Walk navigation mode (the default) alongside the original Orbit controls, and the web panel.
 - **Not yet verified:** real Cinema 4D scenes, and real Syphon senders (After Effects, Resolume, VDMX). See [Verification status](#10-verification-status).
-- **Next steps:** the open items in [`UX-AUDIT.md`](UX-AUDIT.md) (many of its findings were written against the classic sidebar; re-check each against the web panel), plus the planned FPS readout and render effects in [section 14](#14-known-limitations-and-backlog).
+- **Next steps:** the planned FPS readout and render effects in [section 14](#14-known-limitations-and-backlog).
 
 ---
 
@@ -56,6 +56,17 @@ The app lives at `build/Linda Vista Mapper.app`; drag it to `/Applications` to i
 
 A preview tool for projection mapping and non-flat screens. You load a stage model (FBX) and pick a video source. The source is textured onto the model's screen surfaces, so you can see the content in 3D while you create it in another app.
 
+**Features** (the same list as the README):
+- **Stage models:** load one or more FBX files into the same scene; reload or remove each independently. Import the cameras stored in the FBX as presets.
+- **Sources:** Syphon, Image and Video (below).
+- **Navigation:** **Walk** mode by default (WASD + QE to fly, right-drag to look), or **Orbit** to orbit, dolly and pan around the point under the cursor.
+- **Camera presets:** save views, switch with the `1`–`9` keys, edit position, rotation, and FOV (1–140°) numerically.
+- **Screen blending:** blend the screens over the stage, with an adjustable opacity from 10% to 100%.
+- **Layers:** show or hide screens, stage geometry, guides, wireframe, floor grid and camera markers.
+- **Native Metal rendering** at Retina resolution, with a React + shadcn/ui control panel beside the 3D view (and the original ImGui sidebar with `--classic-ui`).
+
+**Default state (no FBX loaded):** a 16:9 screen on the floor showing the current source, or `default_tex.png` when the source has no frame. The camera starts closer than it does for a stage ([13](#13-rendering-details)). Fix Up Direction and Walk mode are on for fresh settings.
+
 **Scene conventions** (unchanged from 2.x; prefix matching is case-sensitive):
 - Meshes whose **node name starts with `screen`** display the current source (they need UVs).
 - Meshes starting with **`guide`** are guides, which can be toggled with `G`.
@@ -94,16 +105,16 @@ Virtual Mapper 2.3.1 was built on openFrameworks 0.9 and linked against prebuilt
 Linda Vista Mapper/
 ├── README.md                   ← overview and quick start
 ├── HANDOFF.md                  ← this file
-├── UX-AUDIT.md                 ← usability audit of the 3.1.0 classic sidebar (findings still open)
 ├── Makefile                    ← all build, test and smoke targets
-├── LICENSE                     ← upstream MIT license (Baku Hashimoto), kept for the derived work
+├── LICENSE                     ← MIT license: upstream (Baku Hashimoto), kept for the derived work, plus the redesign credit (Ale Segura, 2026)
 ├── resources/
 │   ├── Info.plist              ← bundle metadata (@VERSION@ filled in by make); id local.lindavistamapper
-│   ├── LindaVistaMapper.icns   ← app icon (currently still the original Virtual Mapper icon)
+│   ├── LindaVistaMapper.icns   ← app icon, generated from LindaVistaMapper-icon.png by tools/make_icns.sh
+│   ├── LindaVistaMapper-icon.png ← 1024×1024 source of the app icon
 │   └── data/                   ← copied into the bundle's Resources/data
 │       ├── Karla-Regular.ttf   ← UI font (from upstream)
 │       ├── Karla-OFL.txt       ← font license (must ship with the font)
-│       └── default_tex.png     ← UV test chart shown when a source has no frame
+│       └── default_tex.png     ← 1920×1080 chart shown when a source has no frame (also the no-FBX screen)
 ├── src/
 │   ├── main.mm                 ← NSApplication, window, MTKView subclass (VMView), menus, drag & drop, CLI flags
 │   ├── VMApp.h/.mm             ← app core: frame loop, sidebar root, input routing, settings load/save, snapshot capture, panel state/action bridge
@@ -139,6 +150,7 @@ Linda Vista Mapper/
 │   ├── make_test_scene.py      ← writes an ASCII FBX test stage (optionally in meters)
 │   ├── syphon_test_sender.m    ← publishes a GL-oriented test pattern over Syphon
 │   ├── make_test_movie.m       ← writes a numbered H.264 test movie
+│   ├── make_icns.sh            ← regenerates resources/LindaVistaMapper.icns from the 1024×1024 PNG
 │   └── smoke_test.py           ← make smoke
 ├── vendor/                     ← pinned third-party sources (see VERSIONS.txt)
 │   ├── imgui/  ufbx/  syphon/
@@ -293,10 +305,10 @@ Add FBX and Reload parse the file on a background queue (`dispatch_async(dispatc
 | "Coord" | text label | — | — |
 | **Pos** | DragFloat3 (speed 1, `%.1f`) | camera world position in cm | `view.camera.current.matrix` |
 | **Rot** | DragFloat3 (speed 1, `%.1f`) | Euler degrees shown as (pitch X, yaw Y, roll Z), where R = Ry·Rx·Rz | (same matrix) |
-| **Fov** | SliderFloat 0–180 | vertical FOV in degrees (clamped to 0.5–179 when rendering) | `view.camera.current.fov` |
+| **Fov** | SliderFloat 1–140 | vertical FOV in degrees (the UI limit is 1–140; a preset imported from an FBX can carry a wider FOV and keeps it; clamped to 0.5–179 when rendering) | `view.camera.current.fov` |
 | **Fix Up Direction** | checkbox | keeps the horizon level while orbiting | `view.camera.fixUpDirection` |
 | **Visibility** | tree node (closed by default) | 2-column checkboxes: **Cameras, Grid / Guides, Screens / Stages, Wireframe** (alphabetical, as in 2.x) | `view.visibility.*` |
-| **Enable Screen Blending** | checkbox | draws screens with the "screen" blend mode and no depth writes | `view.enableScreenBlending` |
+| **Enable Screen Blending** | checkbox | draws screens with the "screen" blend mode and no depth writes. Its opacity (10–100%, default 100%) has no control in the classic sidebar: it can only be set from the web panel or `view.screenBlendOpacity` in settings | `view.enableScreenBlending`, `view.screenBlendOpacity` |
 
 Editing Pos, Rot or Fov, or navigating, automatically switches the combo back to **(Custom)** (`ViewManager::update` uses `GrabCamera::matches`).
 
@@ -366,8 +378,8 @@ Source: `ui/src/App.tsx`. Sections, top to bottom, under a header ("Linda Vista 
 |---|---|---|---|
 | **Stage** | **+** (Add FBX); an empty-state drop target; per-file card with name, size, folder (full path on hover), a **Screens** or amber **No screens** badge, **Import N cameras**, **Reload**, **Remove** | Add is disabled while any file loads; cards show "Loading…" while parsing; Remove is a two-click confirm (the second click is the check icon, disarmed on blur). "No screens" appears when no mesh name starts with `screen` | `SceneManager` |
 | **Source** | Syphon / Image / Video selector; status line with a colored dot | Syphon: server picker. Image: Load Image. Video: Load Video, Close, play/pause, frame step, seek. Flip Texture Vertically | `SourceManager` |
-| **Camera** | preset select ("Custom view", then presets with `1`–`9` hints); **+** save current view; trash delete preset; Position and Rotation (three scrubbable number fields each); Field of view slider (1–179°); Fix up direction; Navigation Orbit / Walk toggle, with a one-line hint for the active mode | Number fields scrub by dragging (1 unit per pixel) or take typed values; editing any of them switches to Custom view. Add is enabled only on Custom view, delete only on a preset | `ViewManager` |
-| **Display** | switches for Screens, Stage geometry, Guides (`G`), Wireframe (`X`), Floor grid, Camera markers; Screen blending | | `ViewManager` |
+| **Camera** | preset select ("Custom view", then presets with `1`–`9` hints); **+** save current view; trash delete preset; Position and Rotation (three scrubbable number fields each); **FOV** slider (1–140°) with a typed degrees field beside it; Fix up direction; Navigation Orbit / Walk toggle, with a one-line hint for the active mode | Position/Rotation fields scrub by dragging (1 unit per pixel) or take typed values; the FOV field only takes typed values (Enter or blur commits, clamped to 1–140; Escape abandons the edit). Editing any of them switches to Custom view. Add is enabled only on Custom view, delete only on a preset | `ViewManager` |
+| **Display** | switches for Screens, Stage geometry, Guides (`G`), Wireframe (`X`), Floor grid, Camera markers; Screen blending, and under it, **only while blending is on**, an Opacity slider (10–100%, 1% steps) with a typed percent field | Opacity scales the screens' contribution in the screen blend (`result = background + opacity × content × (1 − background)`), so 100% is the plain screen blend; it has no effect with blending off. The value is kept while blending is toggled off and on, and clamped to 10–100% when loaded or set | `ViewManager` (`screenBlendOpacity`), `Renderer::drawScreens` |
 | **Window** | Always on top; Enter / Exit full screen (`F`) | Full screen state tracks the real window state | `MiscManager` |
 
 **Collapsed rail** (60 pt): expand button, one icon each for Stage (with a file-count badge, amber if a file has no screens), Source (with the status dot) and Camera (with the active preset number), the six layer toggles, and a shortcuts icon. Hovering uses native `title` tooltips.
@@ -381,10 +393,11 @@ Behavior differences from the classic sidebar: Cameras/Visibility are not hidden
 There are two camera navigation modes, `view.navMode`, toggled by the **Walk Navigation**
 checkbox tucked into the Misc section (deliberately low-visibility, not in the View
 section's camera controls — see [6.2](#6-ui-inventory-current-design)):
-- **Orbit** (default): everything below under "Orbit mode" — left-drag orbit, right-drag
+- **Orbit**: everything below under "Orbit mode" — left-drag orbit, right-drag
   dolly, middle/H-drag pan, scroll-zoom, all around the picked pivot. Unchanged from
   pre-Walk-mode behavior.
-- **Walk**: WASD+QE fly the camera continuously while held; right-drag looks around in
+- **Walk** (the **default for fresh settings**; a saved `view.navMode` of either value is
+  kept): WASD+QE fly the camera continuously while held; right-drag looks around in
   place instead of dollying. `ViewManager::setNavMode` resets any in-progress drag and
   held-key state on every switch, so there's no leftover drift when you switch back.
 
@@ -417,7 +430,7 @@ doesn't use the result — harmless, just an unused pick.)
 | Key | Action | Handler |
 |---|---|---|
 | `1`–`9` | Switch to camera preset N (if it exists) | `ViewManager::keyDown` |
-| `R` | Reset camera to (300, 100, 300) looking at the origin, FOV 40, Fix Up on | `ViewManager::keyDown` |
+| `R` | Reset camera to (300, 100, 300) looking at the origin, FOV 40, Fix Up on; with no FBX loaded, to the closer (200, 105, 200) | `ViewManager::keyDown` |
 | `X` | Toggle wireframe (both nav modes — the sole wireframe-toggle key; `W` has no wireframe meaning) | `ViewManager::keyDown` |
 | `W` / `A` / `S` / `D` / `Q` / `E` — **Walk mode** | Move forward / strafe left / move back / strafe right / move down / move up, continuous while held, scaled by elapsed frame time (~600 cm/s default). No binding, and no effect, in Orbit mode. | `VMApp::keyDown/keyUp` (held state) → `ViewManager::update` |
 | `G` | Toggle guides | `ViewManager::keyDown` |
@@ -493,7 +506,7 @@ The "Today" column describes the classic ImGui code paths. All of these actions 
 If the classic sidebar's layout changes, update these coordinates. The snapshot harness (section 11) is the way to verify UI changes visually.
 
 ### 8.5 Behaviors worth preserving (existing users rely on them)
-The `screen*`/`guide*` naming, FBX cameras importable as presets, the `1`–`9`/R/X/G/C/F shortcuts, orbit/dolly/pan around the point under the cursor, texture flip semantics, and Syphon naming as "App - Server". Orbit stays the default nav mode with all of the above unchanged; Walk ([7](#7-controls-inventory-mouse-and-keyboard)) is an opt-in toggle that only changes behavior once a user turns it on.
+The `screen*`/`guide*` naming, FBX cameras importable as presets, the `1`–`9`/R/X/G/C/F shortcuts, orbit/dolly/pan around the point under the cursor, texture flip semantics, and Syphon naming as "App - Server". All of the above work unchanged in Orbit mode, which remains one click away in the panel's Navigation toggle. **Walk is now the default navigation mode for fresh settings** ([7](#7-controls-inventory-mouse-and-keyboard)); this reverses the earlier "Orbit stays the default" decision, so anyone with a saved `view.navMode` keeps their choice but a new install starts in Walk (right-drag looks around instead of dollying, and the WALK indicator shows).
 
 ---
 
@@ -503,7 +516,7 @@ The `screen*`/`guide*` naming, FBX cameras importable as presets, the `1`–`9`/
 |---|---|---|---|
 | **Flip Texture Vertically** | Standard FBX UVs showed upside down unless checked | Correct when **unchecked**; checking inverts | ofxFBX passed UVs raw into a top-down texture convention |
 | Settings | XML inside the app bundle | JSON in `~/Library/Application Support/Linda Vista Mapper/`; 2.x settings are not imported (and neither are the settings of pre-rename builds, which lived in a `Virtual Mapper` folder there) | Writing into a signed bundle is wrong and breaks the signature |
-| Control UI | ImGui sidebar overlaying the 3D view | Web panel (React + shadcn/ui) docked beside the 3D view, resizable and collapsible to a rail; the ImGui sidebar remains as `--classic-ui` | See [5.8](#58-web-panel-default-ui); the audit's "panel covers 24% of the view" finding no longer applies to the default UI |
+| Control UI | ImGui sidebar overlaying the 3D view | Web panel (React + shadcn/ui) docked beside the 3D view, resizable and collapsible to a rail; the ImGui sidebar remains as `--classic-ui` | See [5.8](#58-web-panel-default-ui) |
 | Wireframe key | `W` | `X` (`W` no longer toggles it) | `W` is Walk mode's forward key, and one key meaning two things depending on mode was too easy to trip over |
 | Display | Rendered at 1× and upscaled (TODO in 2.x README) | Native Retina | — |
 | Syphon | Choose each time; restoring at launch was unreliable | Remembers the server by name; reconnects when it appears or restarts; "(No Server)"/"(Select Server)" | Senders often start after the viewer |
@@ -512,7 +525,7 @@ The `screen*`/`guide*` naming, FBX cameras importable as presets, the `1`–`9`/
 | Wireframe | Triangle edges | Polygon outlines | Cleaner for mapping |
 | Far clipping | 100 m | Infinite (reversed-Z) | Large venues don't clip |
 | Scene loading | One FBX at a time; loading a new one replaced it | Additive and multi-file: **Add FBX** appends to the scene, and each loaded file gets its own Reload/Remove/Import Cameras | Composite stages built from several files |
-| Camera navigation | Orbit only (left-drag orbit, right-drag dolly, middle/H-drag pan) | Orbit (default, unchanged) plus an opt-in **Walk** mode: WASD+QE fly, right-drag looks in place | Free-roam traversal of large venues |
+| Camera navigation | Orbit only (left-drag orbit, right-drag dolly, middle/H-drag pan) | Orbit (unchanged) plus a **Walk** mode, the default for fresh settings: WASD+QE fly, right-drag looks in place | Free-roam traversal of large venues |
 | Camera labels | Could appear mirrored for cameras behind the view | Hidden when behind | — |
 | Space key | Always toggled video, even while panning | Tap toggles, drag pans | — |
 | Video keys | Worked on the hidden player too | Only when the Video source is active | — |
@@ -540,13 +553,17 @@ The `screen*`/`guide*` naming, FBX cameras importable as presets, the `1`–`9`/
   - Camera math: Euler round-trip, preset matching, project/unproject, orbit keeps the pivot, pan grab, dolly.
   - **GPU pick** on screen, pillar, floor and guide, with hidden layers ignored.
   - Composite scene merging: merging two loaded files gives the union of their meshes, wireframe and cameras, not a replacement.
-- `make smoke`, 24 checks, **all on the classic ImGui UI** (`--classic-ui`; see [8.4](#84-keep-the-tests-in-step-with-the-layout)):
-  - Image, Syphon and video orientation.
+- `make smoke`, 33 checks, **all on the classic ImGui UI** (`--classic-ui`; see [8.4](#84-keep-the-tests-in-step-with-the-layout)):
+  - Image, Syphon and video orientation. The image check uses its own generated four-quadrant chart (`orientation_chart.png`), not `default_tex.png`.
+  - No FBX loaded: the default screen is 16:9 and shows the default texture (seen from straight above, grid and camera markers hidden).
   - Orbit via real events changes the camera, and the result is saved on quit.
   - The `X` key toggles the wireframe, in both nav modes.
   - A drag over the panel doesn't move the camera.
   - Scene Remove needs a second confirming click, and clicking Reload in between clears a pending confirmation.
   - Walk mode: the WALK indicator appears only in Walk mode and survives the Control panel being hidden; holding `W` moves the camera forward; right-drag looks around in place without dollying.
+  - Fresh settings: Walk mode and Fix Up Direction are on, and the WALK indicator shows. (The other fixtures pin `navMode: "orbit"`.)
+  - Default camera: closer with no FBX loaded (200, 105, 200), wide once a stage is loaded (300, 100, 300), and a camera saved in settings is never moved.
+  - Screen blending opacity: defaults to 100%, a saved value round-trips, 10% renders much dimmer than 100%, and values below 10% are clamped.
 
 **Checked by snapshot during the rebuild:**
 - Default state; test stage through the Front, Top and overview cameras; wireframe; glyphs and labels.
@@ -629,7 +646,8 @@ Tips:
       "list": [ { "name": "Front", "matrix": [16 floats], "fov": 40 } ]
     },
     "enableScreenBlending": false,
-    "navMode": "orbit"               // "orbit" (default) or "walk" -- see section 7
+    "screenBlendOpacity": 1.0,       // 0.1-1.0; used only while enableScreenBlending is on
+    "navMode": "walk"                // "walk" (default for fresh settings) or "orbit" -- see section 7
   },
   "sources": {
     "isGuiOpened": true,
@@ -663,7 +681,8 @@ Matrices are column-major camera-to-world transforms, with translation at indice
   7. ImGui (the overlays, and the sidebar in classic mode; the web panel is a separate view beside the 3D view)
 - **Lighting** (`lit_fragment`): headlight at the camera, `emission + ambient·0.2 + diffuse·N·L + specular·(N·H)^shininess`, two-sided, per pixel. This mirrors 2.x's fixed-function OpenGL light.
 - **Lines:** screen-space quads per segment (instanced), with widths in points × backing scale. They're clipped against the near plane in the vertex shader, and wireframe and grid get a small depth bias so they draw over coplanar surfaces.
-- **No scene loaded:** a 1 m × 1 m placeholder screen on the floor, plus a 10 cm white grid as its "wireframe".
+- **No scene loaded:** a 16:9 placeholder screen (160 × 90 cm) lying on the floor, centered on the origin, showing the current source, or `resources/data/default_tex.png` (a 1920×1080 chart) when the source has no frame; plus a 10 cm white grid over it as its "wireframe". The size is `kPlaceholderWidthCm` / `kPlaceholderHeightCm` in `Renderer.mm`; keep them 16:9 to match the texture. Replace `default_tex.png` with any 1920×1080 artwork: no test depends on its contents.
+- **Default camera:** (300, 100, 300) for stage scenes, and a closer (200, 105, 200) while nothing is loaded, both looking at the origin (`GrabCamera::reset(emptyScene)`). `SceneManager::onSceneEmptyChanged` → `ViewManager::setSceneEmpty` moves a camera that is still untouched at the previous default when the scene goes from empty to loaded or back; a preset, a saved camera or a user-moved camera is never touched.
 - **Shaders** are inline MSL in `Renderer.mm`, compiled at runtime (`newLibraryWithSource`). Uniform struct layouts are mirrored in C++ (one `static_assert`).
 - **Screen texture sampling:** linear filtering, clamp to edge, no mipmaps (same as 2.x).
 
@@ -680,8 +699,7 @@ These were deliberately not done in this phase; the list isn't a plan.
 - Window size and position aren't remembered; it always opens at 1024×768, centered, as in 2.x.
 - Video audio plays (as in 2.x). There's no mute control.
 - **Planned, not yet built:** an FPS/frame-time readout, and render effects (Bloom, fog). Both are explicitly deferred by the owner, not forgotten — they're the next additions on top of the Walk-mode and composite-scene-loading work in this version.
-- **Open usability findings:** [`UX-AUDIT.md`](UX-AUDIT.md) lists what is still outstanding. It was written against the classic sidebar; some findings are already addressed by the web panel (filenames and folders are shown separately; a "No screens" badge covers part of P0 #1; Syphon says "Waiting for Syphon Sender"; Walk mode moved to the Camera section; the panel no longer covers the 3D view), and others still apply (as of the audit and not re-tested since: a missing FBX gets the wrong error and is dropped from settings; Delete Camera, in both UIs, still deletes without confirming; there are no File/View menus).
-- **App icon and identity:** `resources/LindaVistaMapper.icns` is still the original Virtual Mapper icon, and the bundle id (`local.lindavistamapper`) is a placeholder.
+- **App icon and identity:** the app icon is the Linda Vista cactus, built from `resources/LindaVistaMapper-icon.png` (1024×1024, full-bleed square, no rounded-corner margin); regenerate `resources/LindaVistaMapper.icns` with `sh tools/make_icns.sh` after changing the PNG. The bundle id (`local.lindavistamapper`) is still a placeholder.
 - **Settings are not migrated** from the `Virtual Mapper` Application Support folder used by builds before the rename; copy `settings.json` across by hand if needed.
 - **Tests:** no automated coverage of the web panel (see [8.4](#84-keep-the-tests-in-step-with-the-layout)).
 
@@ -708,7 +726,8 @@ These come from the machine the project was developed on; check them first if so
 | ufbx | v0.23.1 | MIT or Public Domain (your choice) | `vendor/ufbx/LICENSE` |
 | Syphon-Framework (client + server base only) | master `f4761677` (2026-09-21) | BSD 2-clause | `vendor/syphon/License.txt` |
 | Karla Regular font | 1.000 (2011, Jonathan Pinhorn) | SIL OFL 1.1 | `resources/data/Karla-OFL.txt` |
-| Virtual Mapper (original design, icon, UV chart, behavior) | 2.3.1 | MIT © 2015 HASHIMOTO Baku | `LICENSE` |
+| Virtual Mapper (original behavior and design) | 2.3.1 | MIT © 2015 HASHIMOTO Baku | `LICENSE` |
+| Linda Vista Mapper (icon, test chart, new features) | 3.1.0 | MIT, redesigned by Ale Segura (2026) | `LICENSE` |
 | Web panel toolchain and libraries: React, Radix UI, Tailwind CSS, shadcn/ui components, lucide-react, Vite, TypeScript | see `ui/package.json` and `ui/package-lock.json` | MIT / ISC (see each package) | `ui/node_modules` after `npm install`; built into one HTML file, bundled in `Contents/Resources/ui/` |
 | Geist variable font (`@fontsource-variable/geist`, used by the web panel) | `ui/package.json` | SIL OFL 1.1 | embedded in the built `ui/dist/index.html` |
 

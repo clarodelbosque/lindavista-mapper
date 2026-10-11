@@ -22,13 +22,15 @@ public:
     bool init(id<MTLDevice> device, id<MTLCommandQueue> queue, MTLPixelFormat colorFormat,
               MTLPixelFormat depthFormat, NSUInteger sampleCount, std::string& error);
 
-    // Uploads scene geometry. nullptr restores the placeholder: a 1 m screen on the floor.
+    // Uploads scene geometry. nullptr restores the placeholder: a 16:9 (160 x 90 cm) screen on the floor.
     void setScene(const SceneData* scene);
 
     void begin(id<MTLRenderCommandEncoder> enc, const ViewParams& params);
     void drawStages(id<MTLRenderCommandEncoder> enc);
     void drawGuides(id<MTLRenderCommandEncoder> enc);
-    void drawScreens(id<MTLRenderCommandEncoder> enc, id<MTLTexture> texture, bool flipV, bool screenBlend);
+    // blendOpacity (0-1) scales the screens' contribution and only applies when screenBlend is on.
+    void drawScreens(id<MTLRenderCommandEncoder> enc, id<MTLTexture> texture, bool flipV, bool screenBlend,
+                     float blendOpacity = 1.0f);
     void drawWireframe(id<MTLRenderCommandEncoder> enc);
     void drawGrid(id<MTLRenderCommandEncoder> enc);
     void drawCameraGlyphs(id<MTLRenderCommandEncoder> enc, const std::vector<CameraInfo>& cameras);

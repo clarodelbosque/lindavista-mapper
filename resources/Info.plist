@@ -34,7 +34,7 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
-	<string>Linda Vista Mapper, based on Virtual Mapper by Baku Hashimoto (MIT License). Apple silicon build.</string>
+	<string>Linda Vista Mapper redesigned by Ale Segura, based on Virtual Mapper by Baku Hashimoto (MIT License). Apple silicon build.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>

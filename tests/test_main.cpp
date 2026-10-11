@@ -85,6 +85,12 @@ static void testCamera() {
     CHECK(near3(cam.forward(), simd_normalize(simd_make_float3(-300, -100, -300))));
     CHECK(near(cam.right().y, 0.0f));
 
+    // The empty-scene default is closer than the stage default and still looks at the origin.
+    GrabCamera empty;
+    empty.reset(true);
+    CHECK(simd_length(empty.position) < simd_length(cam.position));
+    CHECK(near3(empty.forward(), simd_normalize(-empty.position)));
+
     simd_float3 e = simd_make_float3(-20.0f, 35.0f, 10.0f);
     cam.setEulerDegrees(e);
     CHECK(near3(cam.eulerDegrees(), e, 1e-2f));

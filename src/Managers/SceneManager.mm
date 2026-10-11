@@ -202,6 +202,7 @@ void SceneManager::rebuildCombinedScene() {
     for (const Entry& entry : entries_) {
         if (entry.scene) scenes.push_back(entry.scene.get());
     }
+    if (onSceneEmptyChanged) onSceneEmptyChanged(scenes.empty());
     if (scenes.empty()) {
         ctx->renderer->setScene(nullptr);
         return;

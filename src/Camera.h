@@ -12,7 +12,9 @@ public:
     float nearClip = 1.0f;  // centimeters
     bool fixUpDirection = true;
 
-    void reset();
+    // The default view: a wide one for stage scenes, or, with `emptyScene` (nothing loaded,
+    // so only the 160 x 90 cm placeholder screen), a closer one that frames that screen.
+    void reset(bool emptyScene = false);
     void lookAt(simd_float3 target, simd_float3 up);
 
     simd_float4x4 transform() const { return vm::rigidTransform(position, orientation); }

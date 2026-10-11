@@ -45,6 +45,8 @@ export type PanelState = {
   navMode: NavMode
   visibility: Record<VisibilityKey, boolean>
   screenBlending: boolean
+  // 0.1-1.0; only meaningful (and only shown) while screenBlending is on
+  screenBlendOpacity: number
   misc: { windowOnTop: boolean; fullscreen: boolean }
 }
 
@@ -66,6 +68,7 @@ export type PanelAction =
   | { type: "setCameraFov"; value: number }
   | { type: "setFixUpDirection"; value: boolean }
   | { type: "setScreenBlending"; value: boolean }
+  | { type: "setScreenBlendOpacity"; value: number }
   | { type: "addCamera" }
   | { type: "deleteCamera" }
   | { type: "loadImage" }
@@ -119,6 +122,8 @@ function apply(state: PanelState, action: PanelAction): PanelState {
       return { ...state, camera: { ...state.camera, fixUpDirection: action.value } }
     case "setScreenBlending":
       return { ...state, screenBlending: action.value }
+    case "setScreenBlendOpacity":
+      return { ...state, screenBlendOpacity: action.value }
     case "removeSceneFile":
       return { ...state, scene: { files: state.scene.files.filter((f) => f.id !== action.id) } }
     case "toggleVideoPlayback":
@@ -174,9 +179,10 @@ let previewState: PanelState = {
     video: { loaded: false, name: "", playing: false, frame: 0, totalFrames: 0 },
   },
   camera: { index: 1, presets: ["Front of house", "Balcony", "Stage left"], position: [0, 120, 600], rotation: [0, 0, 0], fov: 40, fixUpDirection: true },
-  navMode: "orbit",
+  navMode: "walk",
   visibility: { screens: true, stages: true, guides: true, wireframe: false, grid: true, cameras: true },
   screenBlending: false,
+  screenBlendOpacity: 1,
   misc: { windowOnTop: false, fullscreen: false },
 }
 

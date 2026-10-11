@@ -72,12 +72,33 @@ def expect(name, ok, detail):
         failures.append(name)
 
 
+def write_orientation_chart(path):
+    """A 64x64 PNG of four flat quadrants (pink top-left, yellow top-right, navy bottom-left,
+    green bottom-right), so the image checks prove texture orientation without depending on the
+    product's own default_tex.png, which can be replaced by any artwork."""
+    size = 64
+    quadrants = {(0, 0): (230, 40, 120), (1, 0): (240, 200, 40), (0, 1): (20, 20, 140), (1, 1): (30, 200, 80)}
+    raw = b""
+    for y in range(size):
+        raw += b"\0" + b"".join(bytes(quadrants[(x * 2 // size, y * 2 // size)]) for x in range(size))
+
+    def chunk(kind, body):
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0)) +
+                chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
 def base_settings(selected):
     return {
         "showControl": True,
         "scene": {"isGuiOpened": True, "fbxPaths": [os.path.join(OUT, "scene.fbx")]},
         "view": {
             "isGuiOpened": True,
+            # Walk is the app's default for fresh settings, so the fixtures pin Orbit; the
+            # Walk tests below, and the "fresh settings" check, set or omit it on purpose.
+            "navMode": "orbit",
             "camera": {
                 "index": 1,
                 "fixUpDirection": True,
@@ -88,7 +109,7 @@ def base_settings(selected):
         "sources": {
             "isGuiOpened": True,
             "selected": selected,
-            "image": {"path": os.path.join(ROOT, "resources", "data", "default_tex.png")},
+            "image": {"path": os.path.join(OUT, "orientation_chart.png")},
             "syphon": {"inputName": "syphon_test_sender - Test Pattern"},
             "video": {"path": os.path.join(OUT, "movie.mov"), "timeDisplayMode": 1},
         },
@@ -132,12 +153,13 @@ def has_walk_label(img):
 
 def main():
     os.makedirs(OUT, exist_ok=True)
+    write_orientation_chart(os.path.join(OUT, "orientation_chart.png"))
     subprocess.run([sys.executable, os.path.join(ROOT, "tools", "make_test_scene.py"), os.path.join(OUT, "scene.fbx")], check=True)
     subprocess.run([os.path.join(BUILD, "make_test_movie"), os.path.join(OUT, "movie.mov"), "90", "30"], check=True, capture_output=True)
 
     # The center screen spans roughly x 0.29-0.71, y 0.35-0.65 through the Front camera.
     img, _ = render("image", base_settings(1), 30)
-    expect("image: top-left of the UV chart is at the top", is_pink(img.at(0.33, 0.37)), img.at(0.33, 0.37))
+    expect("image: top-left of the orientation chart is at the top", is_pink(img.at(0.33, 0.37)), img.at(0.33, 0.37))
     expect("image: UV (0,0) is at the bottom-left", is_navy(img.at(0.33, 0.63)), img.at(0.33, 0.63))
 
     sender = subprocess.Popen([os.path.join(BUILD, "syphon_test_sender"), "20"], stdout=subprocess.DEVNULL)
@@ -233,6 +255,83 @@ def main():
     expect("walk: right-drag look leaves the Front preset (camera rotated)", camera["index"] == 0, camera["index"])
     expect("walk: right-drag look does not move the camera (no dolly)",
            abs(pos[0]) < 1 and abs(pos[1] - 120) < 1 and abs(pos[2] - 600) < 1, pos)
+
+    # Fresh settings (no navMode, no fixUpDirection saved): Walk mode and Fix Up Direction
+    # are on by default. A saved choice must still win, which the Orbit fixtures above prove.
+    fresh = base_settings(1)
+    del fresh["view"]["navMode"]
+    del fresh["view"]["camera"]["fixUpDirection"]
+    img, saved = render("fresh_defaults", fresh, 30)
+    expect("defaults: fresh settings start in Walk mode", saved["view"].get("navMode") == "walk", saved["view"].get("navMode"))
+    expect("defaults: fresh settings start with Fix Up Direction on", saved["view"]["camera"].get("fixUpDirection") is True,
+           saved["view"]["camera"].get("fixUpDirection"))
+    expect("defaults: the WALK indicator shows on a fresh start", has_walk_label(img), "no label pixels")
+
+    # Screen blending opacity: 100% (the default) is the old look, lower values fade the
+    # screens, and values outside 10-100% are clamped when loaded.
+    def blended(opacity=None):
+        s = base_settings(1)
+        s["view"]["enableScreenBlending"] = True
+        if opacity is not None:
+            s["view"]["screenBlendOpacity"] = opacity
+        return s
+
+    img_full, saved = render("blend_default", blended(), 30)
+    expect("blend: opacity defaults to 100%", abs(saved["view"].get("screenBlendOpacity", 0) - 1.0) < 1e-6,
+           saved["view"].get("screenBlendOpacity"))
+    img_low, saved = render("blend_low", blended(0.1), 30)
+    expect("blend: a saved opacity round-trips", abs(saved["view"].get("screenBlendOpacity", 0) - 0.1) < 1e-6,
+           saved["view"].get("screenBlendOpacity"))
+    bright_full, bright_low = sum(img_full.at(0.33, 0.37)), sum(img_low.at(0.33, 0.37))
+    expect("blend: 10% opacity is much dimmer than 100%", bright_full > 150 and bright_low < bright_full * 0.35,
+           (bright_full, bright_low))
+    _, saved = render("blend_clamped", blended(0.0), 10)
+    expect("blend: an opacity below 10% is clamped to 10%", abs(saved["view"].get("screenBlendOpacity", 0) - 0.1) < 1e-6,
+           saved["view"].get("screenBlendOpacity"))
+
+    # No FBX loaded: the default state is a 16:9 screen on the floor showing default_tex.png
+    # (no source has a frame). Seen from straight above with the grid and camera markers off,
+    # the only thing in the 3D view that differs from the background is that rectangle.
+    empty = base_settings(1)
+    empty["scene"]["fbxPaths"] = []
+    empty["sources"]["image"] = {}
+    empty["view"]["visibility"] = {"grid": False, "cameras": False}
+    empty["view"]["camera"] = {"index": 0, "fixUpDirection": True, "current": {"matrix": TOP, "fov": 40}, "list": []}
+    img, _ = render("no_scene", empty, 30)
+    bg = img.at(0.9, 0.2)
+
+    def differs(p): return sum(abs(a - b) for a, b in zip(p, bg)) > 60
+
+    xs, ys = [], []
+    for y in range(int(img.h * 0.1), int(img.h * 0.95), 2):
+        row = img.rows[y]
+        for x in range(int(img.w * 0.3), img.w, 2):
+            if differs(tuple(row[x * img.bpp:x * img.bpp + 3])):
+                xs.append(x)
+                ys.append(y)
+    if xs:
+        w, h = max(xs) - min(xs), max(ys) - min(ys)
+        ratio = max(w, h) / max(1, min(w, h))
+        expect("no scene: the default screen is 16:9", abs(ratio - 16 / 9) < 0.06, f"{w}x{h} px, ratio {ratio:.3f}")
+        # default_tex.png is a colorful chart: the screen must not be a flat fill.
+        samples = {tuple(img.rows[y][x * img.bpp:x * img.bpp + 3]) for x, y in zip(xs[::37], ys[::37])}
+        expect("no scene: the default screen shows the default texture", len(samples) > 8, len(samples))
+    else:
+        expect("no scene: the default screen is 16:9", False, "nothing drawn")
+
+    # The untouched default camera depends on the scene: close to the placeholder screen when
+    # nothing is loaded, wide for a stage. A camera saved in settings is never moved.
+    def start_position(settings, name):
+        _, saved = render(name, settings, 40)
+        m = saved["view"]["camera"]["current"]["matrix"]
+        return [round(v) for v in m[12:15]]
+
+    pos = start_position({}, "camera_empty")
+    expect("camera: with no FBX the default camera is close to the screen", pos == [200, 105, 200], pos)
+    pos = start_position({"scene": {"fbxPaths": [os.path.join(OUT, "scene.fbx")]}}, "camera_stage")
+    expect("camera: with an FBX loaded the default camera is the wide one", pos == [300, 100, 300], pos)
+    pos = start_position(base_settings(1), "camera_saved")
+    expect("camera: a saved camera is left alone", pos == [FRONT[12], FRONT[13], FRONT[14]], pos)
 
     print(f"\nsnapshots in {OUT}")
     if failures:
