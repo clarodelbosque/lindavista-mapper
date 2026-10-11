@@ -1,0 +1,3 @@
+imgui v1.92.9
+ufbx v0.23.1
+Syphon-Framework f4761677a45b8034a3c2069ec0f3d2553da81fba
