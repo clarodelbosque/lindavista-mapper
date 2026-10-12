@@ -1,4 +1,5 @@
 # Linda Vista Mapper
+[Download Linda Vista Mapper 3.1.0 for macOS](https://github.com/clarodelbosque/lindavista-mapper/releases/)
 
 A native Apple Silicon (arm64) macOS app for previewing projection mapping and non-flat screens. Load a stage model (FBX), pick a video source, and the source is textured onto the model's screen surfaces, so you can see your content in 3D while you create it in another app.
 
